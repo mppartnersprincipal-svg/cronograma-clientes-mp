@@ -22,6 +22,42 @@ interface ContentOutputProps {
   onSaved: () => void;
 }
 
+// ─── Utilitário: markdown → HTML para impressão ───────────────────────────────
+
+function mdToHtml(md: string): string {
+  const lines = md.split('\n');
+  const out: string[] = [];
+  let inUl = false;
+
+  function esc(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function fmt(text: string): string {
+    return esc(text)
+      .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code>$1</code>');
+  }
+
+  for (const line of lines) {
+    const isList = /^[-*] /.test(line);
+    if (inUl && !isList) { out.push('</ul>'); inUl = false; }
+
+    if (/^### /.test(line))      out.push(`<h3>${fmt(line.slice(4))}</h3>`);
+    else if (/^## /.test(line))  out.push(`<h2>${fmt(line.slice(3))}</h2>`);
+    else if (/^# /.test(line))   out.push(`<h1>${fmt(line.slice(2))}</h1>`);
+    else if (isList)             { if (!inUl) { out.push('<ul>'); inUl = true; } out.push(`<li>${fmt(line.slice(2))}</li>`); }
+    else if (line.trim() === '---') out.push('<hr>');
+    else if (/^> /.test(line))   out.push(`<blockquote>${fmt(line.slice(2))}</blockquote>`);
+    else if (line.trim() === '')  { /* pula linhas vazias */ }
+    else                          out.push(`<p>${fmt(line)}</p>`);
+  }
+
+  if (inUl) out.push('</ul>');
+  return out.join('\n');
+}
+
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
@@ -78,6 +114,45 @@ export default function ContentOutput({
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function handleDownloadPdf() {
+    const win = window.open('', '_blank');
+    if (!win) return;
+
+    win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>${ideaTitle || 'Roteiro'}</title>
+<style>
+  body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:20px 40px;color:#1a1a1a;line-height:1.75;font-size:15px}
+  .header{margin-bottom:32px;border-bottom:2px solid #1a1a1a;padding-bottom:16px}
+  .header h1{font-size:24px;margin:0 0 8px;font-weight:bold}
+  .meta{font-size:12px;color:#888;font-family:sans-serif}
+  h1{font-size:20px;font-weight:bold;margin:24px 0 6px}
+  h2{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#666;margin:28px 0 8px;border-bottom:1px solid #e5e5e5;padding-bottom:4px}
+  h3{font-size:15px;font-weight:bold;margin:20px 0 6px}
+  p{margin:0 0 12px}
+  ul{margin:0 0 12px;padding-left:24px}
+  li{margin-bottom:4px}
+  hr{border:none;border-top:1px solid #ddd;margin:24px 0}
+  blockquote{border-left:3px solid #999;padding:2px 16px;color:#555;font-style:italic;margin:16px 0}
+  strong{font-weight:700}
+  code{font-family:monospace;background:#f4f4f4;padding:1px 4px;border-radius:3px}
+  @media print{body{margin:0;padding:20px 40px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>${ideaTitle || 'Roteiro'}</h1>
+  <div class="meta">${CONTENT_TYPE_LABELS[contentType]} &nbsp;·&nbsp; ${framework} &nbsp;·&nbsp; ${today}</div>
+</div>
+${mdToHtml(content)}
+<script>window.onload=function(){window.print()}<\/script>
+</body>
+</html>`);
+    win.document.close();
   }
 
   return (
@@ -141,38 +216,48 @@ export default function ContentOutput({
       </div>
 
       {/* ── Ações ── */}
-      <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-3">
-        {/* Aprovar e Salvar */}
-        <button
-          onClick={handleSave}
-          disabled={saveStatus === 'saving' || saveStatus === 'saved'}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {saveStatus === 'saving'
-            ? 'Salvando…'
-            : saveStatus === 'saved'
-            ? '✓ Salvo'
-            : saveStatus === 'error'
-            ? '⚠ Tentar novamente'
-            : 'Aprovar e Salvar'}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3">
+        {/* Grupo esquerdo */}
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {saveStatus === 'saving'
+              ? 'Salvando…'
+              : saveStatus === 'saved'
+              ? '✓ Salvo'
+              : saveStatus === 'error'
+              ? '⚠ Tentar novamente'
+              : 'Aprovar e Salvar'}
+          </button>
 
-        {/* Pedir nova versão */}
-        <button
-          onClick={onNewVersion}
-          disabled={saveStatus === 'saving'}
-          className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Pedir nova versão
-        </button>
+          <button
+            onClick={onNewVersion}
+            disabled={saveStatus === 'saving'}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Pedir nova versão
+          </button>
+        </div>
 
-        {/* Copiar */}
-        <button
-          onClick={handleCopy}
-          className="ml-auto rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {copied ? '✓ Copiado' : 'Copiar'}
-        </button>
+        {/* Grupo direito */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleCopy}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {copied ? '✓ Copiado' : 'Copiar'}
+          </button>
+
+          <button
+            onClick={handleDownloadPdf}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Baixar PDF
+          </button>
+        </div>
       </div>
     </div>
   );

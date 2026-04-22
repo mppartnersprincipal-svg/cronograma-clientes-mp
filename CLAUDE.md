@@ -77,11 +77,17 @@ ETAPA 2 — Tipo de conteúdo
   → Agente pergunta: "Que tipo de conteúdo você quer criar?"
   → Opções: Reels de Valor | Reels Institucional | Anúncio | Peça Estática | Carrossel
 
-ETAPA 3 — Pesquisa e ideias
-  → Agente faz web_search sobre tendências do nicho do cliente
+ETAPA 2.5 — Quantidade de roteiros
+  → Agente pergunta: "Quantos roteiros você quer gerar?"
+  → Opções: 1 | 2 | 3 | 5
+  → Quantidade pode ser sobrescrita pela seleção múltipla de ideias na etapa seguinte
+
+ETAPA 3 — Pesquisa e ideias (multi-seleção)
+  → Agente faz web_search sobre tendências atuais do nicho do cliente (termos: "tendência 2026")
   → Agente lê roteiros/briefings aprovados anteriores (evitar repetição de ângulo)
-  → Agente apresenta 3–5 ideias de conteúdo para o usuário aprovar
-  → Usuário escolhe uma ideia (ou pede nova sugestão)
+  → Agente apresenta 3–5 ideias de conteúdo com checkbox de seleção
+  → Usuário seleciona uma ou mais ideias e clica "Gerar N roteiros"
+  → Se múltiplas ideias selecionadas: agente gera 1 roteiro por ideia (com ângulo e gancho injetados no prompt)
 
 ETAPA 4 — Coleta de informações adicionais
   → Agente confirma/ajusta: tom de voz, CTA desejado, duração (se vídeo), formato (se peça)
@@ -89,11 +95,14 @@ ETAPA 4 — Coleta de informações adicionais
 
 ETAPA 5 — Geração do conteúdo
   → Agente seleciona o framework de copy adequado ao tipo de conteúdo
-  → Gera o roteiro ou briefing completo via streaming
+  → Gera o(s) roteiro(s) completo(s) via streaming
+  → Múltiplos roteiros separados por "---" e numerados como "Roteiro 1 — {título}"
   → Exibe o resultado formatado na interface
 
 ETAPA 6 — Aprovação e salvamento
   → Usuário aprova, edita ou pede nova versão
+  → Botões: "Aprovar e Salvar" | "Pedir nova versão" | "Copiar" | "Baixar PDF"
+  → "Baixar PDF": abre janela de impressão formatada (título, metadados, markdown renderizado)
   → Conteúdo aprovado é salvo em /clients/{cliente}/roteiros-aprovados/ (ou briefings)
   → Registro salvo no SQLite (cliente, tipo, data, título, status)
 ```
@@ -202,6 +211,46 @@ npm run build
 ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL="file:./dev.db"
 ```
+
+---
+
+## Clientes Cadastrados
+
+Pasta `/clients/` contém os seguintes clientes ativos (além do `exemplo-cliente` de referência):
+
+| Slug | Nome | Nicho | Localização |
+|------|------|-------|-------------|
+| `alencastro-veiga` | Alencastro Veiga e Advogados Associados | Advocacia | Goiânia, GO |
+| `dr-benicio` | Dr. Benício Jr. — Cirurgia Plástica | Saúde | Goiânia, GO |
+| `pacheco-solar` | Pacheco Solar | Energia Solar | Aparecida de Goiânia, GO |
+| `prime-house` | Prime House — Ana Coutinho | Imobiliário | Rio de Janeiro, RJ |
+| `telhas-coral` | Telhas Coral / IBT Telhas | Materiais de Construção | Goiânia, GO |
+
+> Demais clientes da pasta `cps_clientes_ativos` no Google Drive da agência ainda serão cadastrados.
+> Fonte dos briefings: Google Drive compartilhado (pasta `cps_clientes_ativos`).
+
+---
+
+## Status de Implementação
+
+### Funcionalidades confirmadas e funcionando
+- ✅ Dashboard com grid de clientes (`/dashboard`)
+- ✅ Chat conversacional com streaming (`/dashboard/[slug]`)
+- ✅ Sistema de copywriters: seleção automática por tipo/nicho + seleção manual
+- ✅ Badges de especialidade nos cards do seletor manual (destaque por tipo de conteúdo ativo)
+- ✅ Injeção do par de copywriters no system prompt (seções `core_frameworks`, `core_principles`, `writing_style`, `## How [Name] Thinks`)
+- ✅ `web_search` via `anthropic.tools.webSearch_20250305` funcionando (etapa de ideias — ~20–35s por chamada)
+- ✅ Pesquisa de tendências orientada a 2026 (ignora resultados de 2024 ou anteriores)
+- ✅ Geração de ideias com pesquisa de tendências do nicho
+- ✅ Seletor de quantidade de roteiros (1 / 2 / 3 / 5) antes da etapa de ideias
+- ✅ Multi-seleção de ideias com checkbox — gera 1 roteiro por ideia selecionada
+- ✅ Download em PDF via janela de impressão formatada (markdown renderizado)
+- ✅ Histórico de conteúdos por cliente (`/dashboard/[slug]/historico`)
+- ✅ Salvamento de conteúdo aprovado (SQLite via Prisma)
+
+### Pendente
+- ⏳ Cadastro dos demais clientes do Drive (restam ~21 clientes)
+- ⏳ Verificar handles de redes sociais nos `info.md` dos clientes cadastrados (campos marcados como "verificar com cliente")
 
 ---
 

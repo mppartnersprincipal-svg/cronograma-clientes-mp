@@ -31,6 +31,8 @@ interface AgentRequestBody {
   stage: Stage;
   ideaTitle?: string;
   extraInfo?: string;
+  scriptCount?: number;
+  selectedIdeas?: { title: string; angle: string; hook: string }[];
   primaryCopywriterId?: string;
   secondaryCopywriterId?: string;
 }
@@ -155,7 +157,7 @@ ${anglesBlock}
 
 ## INSTRUÇÕES
 
-1. Use a ferramenta web_search para pesquisar tendências atuais do nicho do cliente (combine o nicho com termos como "tendência 2025", "conteúdo viral", "Instagram ${label}").
+1. Use a ferramenta web_search para pesquisar tendências atuais do nicho do cliente (combine o nicho com termos como "tendência 2026", "conteúdo viral 2026", "Instagram ${label} 2026"). Priorize resultados de 2026 — ignore conteúdos de 2024 ou anteriores.
 2. Com base na pesquisa e no perfil do cliente, sugira entre 3 e 5 ideias de conteúdo do tipo **${label}**.
 3. Cada ideia deve ser diferente em ângulo e abordagem das anteriores.
 4. Ao final, apresente as ideias no seguinte formato JSON dentro de um bloco de código:
@@ -312,6 +314,8 @@ export async function POST(request: NextRequest) {
     stage,
     ideaTitle = '',
     extraInfo = '',
+    scriptCount = 1,
+    selectedIdeas,
     primaryCopywriterId,
     secondaryCopywriterId,
   } = body;
@@ -349,21 +353,36 @@ export async function POST(request: NextRequest) {
       break;
 
     case 'generation': {
-      if (!ideaTitle) {
+      const hasMultipleIdeas = selectedIdeas && selectedIdeas.length > 1;
+      const primaryTitle = ideaTitle || selectedIdeas?.[0]?.title || '';
+
+      if (!primaryTitle) {
         return new Response(
           JSON.stringify({ error: 'ideaTitle é obrigatório no stage "generation"' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
+
       const copywriterBlock = await loadCopywriterInjection(
         contentType,
         clientNiche,
         primaryCopywriterId,
         secondaryCopywriterId,
       );
-      // Injeta o bloco de copywriters antes do prompt de geração
-      const basePrompt = buildGenerationPrompt(knowledge, contentType, ideaTitle, extraInfo);
-      systemPrompt = copywriterBlock ? copywriterBlock + '\n\n' + basePrompt : basePrompt;
+
+      if (hasMultipleIdeas) {
+        // Gera um roteiro completo por ideia selecionada
+        const basePrompt = buildGenerationPrompt(knowledge, contentType, primaryTitle, extraInfo);
+        systemPrompt = copywriterBlock ? copywriterBlock + '\n\n' + basePrompt : basePrompt;
+        systemPrompt += `\n\n---\n\n## ROTEIROS MÚLTIPLOS\n\nO usuário selecionou **${selectedIdeas!.length} ideias diferentes**. Gere um roteiro completo para cada uma delas, na ordem abaixo. Separe cada roteiro com "---" e numere como **Roteiro 1 — {título}**, **Roteiro 2 — {título}**, etc.\n\n${selectedIdeas!.map((idea, i) => `**${i + 1}. ${idea.title}**\nÂngulo: ${idea.angle}\nGancho sugerido: "${idea.hook}"`).join('\n\n')}`;
+      } else {
+        const basePrompt = buildGenerationPrompt(knowledge, contentType, primaryTitle, extraInfo);
+        systemPrompt = copywriterBlock ? copywriterBlock + '\n\n' + basePrompt : basePrompt;
+
+        if (scriptCount > 1) {
+          systemPrompt += `\n\n---\n\n## QUANTIDADE DE ROTEIROS\n\nO usuário solicitou **${scriptCount} roteiros** diferentes. Gere ${scriptCount} versões completas e distintas, numeradas como **Roteiro 1**, **Roteiro 2**, etc. Cada versão deve ter um gancho diferente e abordagem levemente distinta, mas mantendo o mesmo tema e framework de copy. Separe cada roteiro com uma linha horizontal (---).`;
+        }
+      }
       break;
     }
 

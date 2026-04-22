@@ -7,8 +7,8 @@ import { COPYWRITERS, COPYWRITERS_LIST, type ContentType } from '@/lib/copywrite
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type ChatStage = 'type-selection' | 'ideas' | 'info-gathering' | 'generation' | 'revision';
-type ApiStage = Exclude<ChatStage, 'type-selection'>;
+type ChatStage = 'type-selection' | 'quantity-selection' | 'ideas' | 'info-gathering' | 'generation' | 'revision';
+type ApiStage = Exclude<ChatStage, 'type-selection' | 'quantity-selection'>;
 
 interface ChatMessage {
   id: string;
@@ -30,11 +30,21 @@ interface AgentBody {
   contentType: ContentType;
   stage: ApiStage;
   ideaTitle: string;
+  selectedIdeas?: { title: string; angle: string; hook: string }[];
+  scriptCount?: number;
   primaryCopywriterId?: string;
   secondaryCopywriterId?: string;
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
+
+const BADGE_LABELS: Record<ContentType, string> = {
+  'reels-valor': 'Reels Valor',
+  'reels-institucional': 'Reels Inst.',
+  anuncio: 'Anúncio',
+  'peca-estatica': 'Estática',
+  carrossel: 'Carrossel',
+};
 
 const CONTENT_TYPE_OPTIONS: { value: ContentType; label: string }[] = [
   { value: 'reels-valor', label: 'Reels de Valor' },
@@ -54,6 +64,7 @@ const CONTENT_TYPE_FRAMEWORKS: Record<ContentType, string> = {
 
 const STAGE_LABELS: Record<ChatStage, string> = {
   'type-selection': 'Seleção',
+  'quantity-selection': 'Quantidade',
   ideas: 'Ideias',
   'info-gathering': 'Detalhes',
   generation: 'Geração',
@@ -101,6 +112,7 @@ export default function AgentChat({
   const [stage, setStage] = useState<ChatStage>('type-selection');
   const [contentType, setContentType] = useState<ContentType>('reels-valor');
   const [ideaTitle, setIdeaTitle] = useState('');
+  const [scriptCount, setScriptCount] = useState(1);
   const [displayCount, setDisplayCount] = useState(contentCount);
 
   // Copywriter pair state
@@ -192,16 +204,28 @@ export default function AgentChat({
 
   // ─── Handlers de transição de stage ────────────────────────────────────────
 
-  async function handleSelectContentType(type: ContentType) {
+  function handleSelectContentType(type: ContentType) {
     const label = CONTENT_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
     setContentType(type);
+    setStage('quantity-selection');
+    const userMsg: ChatMessage = { id: nextId(), role: 'user', content: `Quero criar: ${label}` };
+    const assistantMsg: ChatMessage = {
+      id: nextId(),
+      role: 'assistant',
+      content: 'Ótimo! Quantos roteiros você quer que eu gere nessa sessão?',
+    };
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+  }
+
+  async function handleSelectQuantity(count: number) {
+    setScriptCount(count);
     setStage('ideas');
 
     // Busca o par de copywriters para este tipo de conteúdo
     let pair: ActivePair | null = null;
     try {
       const res = await fetch(
-        `/api/copywriters?contentType=${type}&niche=${encodeURIComponent(clientNiche)}`
+        `/api/copywriters?contentType=${contentType}&niche=${encodeURIComponent(clientNiche)}`
       );
       if (res.ok) {
         pair = (await res.json()) as ActivePair;
@@ -214,13 +238,14 @@ export default function AgentChat({
     }
 
     streamMessage(
-      `Quero criar: ${label}`,
+      `${count} roteiro${count > 1 ? 's' : ''}`,
       {
         clientSlug,
         clientNiche,
-        contentType: type,
+        contentType,
         stage: 'ideas',
         ideaTitle: '',
+        scriptCount: count,
         primaryCopywriterId: pair?.primary.id,
         secondaryCopywriterId: pair?.secondary.id,
       },
@@ -228,17 +253,26 @@ export default function AgentChat({
     );
   }
 
-  function handleSelectIdea(idea: Idea) {
-    setIdeaTitle(idea.title);
+  function handleConfirmIdeas(ideas: Idea[]) {
+    const firstTitle = ideas[0]?.title ?? '';
+    setIdeaTitle(firstTitle);
     setStage('info-gathering');
+
+    const userContent =
+      ideas.length === 1
+        ? `Escolhi a ideia: **${firstTitle}**`
+        : `Escolhi ${ideas.length} ideias:\n${ideas.map((idea, i) => `${i + 1}. **${idea.title}**`).join('\n')}`;
+
     streamMessage(
-      `Escolhi a ideia: **${idea.title}**`,
+      userContent,
       {
         clientSlug,
         clientNiche,
         contentType,
         stage: 'info-gathering',
-        ideaTitle: idea.title,
+        ideaTitle: firstTitle,
+        selectedIdeas: ideas,
+        scriptCount: ideas.length,
         primaryCopywriterId: activePair?.primary.id,
         secondaryCopywriterId: activePair?.secondary.id,
       },
@@ -255,6 +289,7 @@ export default function AgentChat({
         contentType,
         stage: 'ideas',
         ideaTitle: '',
+        scriptCount,
         primaryCopywriterId: activePair?.primary.id,
         secondaryCopywriterId: activePair?.secondary.id,
       },
@@ -276,7 +311,8 @@ export default function AgentChat({
     const text = input.trim();
     if (!text || status === 'streaming') return;
 
-    const apiStage: ApiStage = stage === 'type-selection' ? 'ideas' : stage;
+    const apiStage: ApiStage =
+      stage === 'type-selection' || stage === 'quantity-selection' ? 'ideas' : stage;
     setInput('');
     streamMessage(
       text,
@@ -286,6 +322,7 @@ export default function AgentChat({
         contentType,
         stage: apiStage,
         ideaTitle,
+        scriptCount,
         primaryCopywriterId: activePair?.primary.id,
         secondaryCopywriterId: activePair?.secondary.id,
       },
@@ -346,11 +383,14 @@ export default function AgentChat({
   const inputDisabled =
     status === 'streaming' ||
     stage === 'type-selection' ||
+    stage === 'quantity-selection' ||
     (stage === 'generation' && showContentOutput);
 
   const inputPlaceholder =
     stage === 'type-selection'
       ? 'Selecione o tipo de conteúdo acima...'
+      : stage === 'quantity-selection'
+      ? 'Selecione a quantidade de roteiros acima...'
       : stage === 'revision'
       ? 'Descreva o que precisa mudar...'
       : 'Digite sua mensagem... (Enter para enviar, Shift+Enter para nova linha)';
@@ -428,6 +468,12 @@ export default function AgentChat({
                 <span className="text-foreground/50">Tipo: </span>
                 {CONTENT_TYPE_OPTIONS.find((o) => o.value === contentType)?.label}
               </p>
+              {scriptCount > 1 && (
+                <p className="text-muted-foreground">
+                  <span className="text-foreground/50">Qtd: </span>
+                  {scriptCount} roteiros
+                </p>
+              )}
               {ideaTitle && (
                 <p className="text-muted-foreground">
                   <span className="text-foreground/50">Ideia: </span>
@@ -562,7 +608,7 @@ export default function AgentChat({
                     <IdeaApproval
                       preamble={ideasData.preamble}
                       ideas={ideasData.ideas}
-                      onSelect={handleSelectIdea}
+                      onConfirm={handleConfirmIdeas}
                       onRefresh={handleRefreshIdeas}
                       disabled={status === 'streaming'}
                     />
@@ -631,6 +677,21 @@ export default function AgentChat({
                     className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Botões de seleção de quantidade */}
+            {stage === 'quantity-selection' && status === 'ready' && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {[1, 2, 3, 5].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => handleSelectQuantity(n)}
+                    className="rounded-lg border border-border bg-card px-5 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {n === 1 ? '1 roteiro' : `${n} roteiros`}
                   </button>
                 ))}
               </div>
@@ -784,6 +845,23 @@ export default function AgentChat({
                       <p className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
                         {cw.title}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {cw.bestFor.map((type) => {
+                          const isActive = selectorFilter === type;
+                          return (
+                            <span
+                              key={type}
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold leading-none ${
+                                isActive
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted text-muted-foreground/60'
+                              }`}
+                            >
+                              {BADGE_LABELS[type]}
+                            </span>
+                          );
+                        })}
+                      </div>
                     </button>
                   );
                 })}
