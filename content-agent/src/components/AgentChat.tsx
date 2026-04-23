@@ -116,6 +116,7 @@ export default function AgentChat({
   const [displayCount, setDisplayCount] = useState(contentCount);
 
   // Copywriter pair state
+  const [confirmedIdeas, setConfirmedIdeas] = useState<{ title: string; angle: string; hook: string }[]>([]);
   const [activePair, setActivePair] = useState<ActivePair | null>(null);
   const [showPairPopover, setShowPairPopover] = useState(false);
   const [showPairSelector, setShowPairSelector] = useState(false);
@@ -256,6 +257,7 @@ export default function AgentChat({
   function handleConfirmIdeas(ideas: Idea[]) {
     const firstTitle = ideas[0]?.title ?? '';
     setIdeaTitle(firstTitle);
+    setConfirmedIdeas(ideas);
     setStage('info-gathering');
 
     const userContent =
@@ -311,8 +313,19 @@ export default function AgentChat({
     const text = input.trim();
     if (!text || status === 'streaming') return;
 
-    const apiStage: ApiStage =
+    let apiStage: ApiStage =
       stage === 'type-selection' || stage === 'quantity-selection' ? 'ideas' : stage;
+
+    // Ao responder no info-gathering, avança direto para geração
+    if (stage === 'info-gathering') {
+      apiStage = 'generation';
+      setStage('generation');
+    }
+
+    if (stage === 'revision') {
+      setStage('generation');
+    }
+
     setInput('');
     streamMessage(
       text,
@@ -322,16 +335,13 @@ export default function AgentChat({
         contentType,
         stage: apiStage,
         ideaTitle,
+        selectedIdeas: confirmedIdeas.length > 0 ? confirmedIdeas : undefined,
         scriptCount,
         primaryCopywriterId: activePair?.primary.id,
         secondaryCopywriterId: activePair?.secondary.id,
       },
       messages
     );
-
-    if (stage === 'revision') {
-      setStage('generation');
-    }
   }
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
